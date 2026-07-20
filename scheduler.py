@@ -11,6 +11,21 @@ class Scheduler:
         self.graph = graph
         self.drones = drones
 
+    def _compute_distances_to_end(self) -> dict:
+        """Reverse BFS to compute hop distance from each zone to the end."""
+        end = self.graph.end_zone
+        dist = {end.name: 0}
+        queue = deque([end])
+        while queue:
+            zone = queue.popleft()
+            for conn in self.graph.connections:
+                if conn.blocked:
+                    continue
+                if conn.zone_b.name == zone.name and conn.zone_a.name not in dist:
+                    dist[conn.zone_a.name] = dist[zone.name] + 1
+                    queue.append(conn.zone_a)
+        return dist
+
     def is_available_connection(self, connection: Connection) -> bool:
         """
         Check if a connection is available for a drone to occupy.
@@ -23,28 +38,26 @@ class Scheduler:
         return connection.max_link_capacity > 0 and connection.zone_b.max_drones > 0
 
     def best_available_connection(self, connections: list[Connection]) -> Connection | None:
-        priority_connection = next(
-            (connection for connection in connections
-             if connection.zone_b.zone_type == ZoneType.PRIORITY and
-             not connection.blocked and self.is_available_connection(connection)),
-            None,
-        )
-        if priority_connection:
-            return priority_connection
-        fast_connection = next(
-            (connection for connection in connections
-             if connection.related_to_shortest_path and
-             not connection.blocked and self.is_available_connection(connection)),
-            None,
-        )
-        if fast_connection:
-            return fast_connection
+        priority_connections = [
+            connection for connection in connections
+            if connection.zone_b.zone_type == ZoneType.PRIORITY and
+            not connection.blocked and self.is_available_connection(connection)
+        ]
+        if priority_connections:
+            return min(priority_connections, key=lambda c: self.dist_to_end.get(c.zone_b.name, float('inf')))
+        fast_connections = [
+            connection for connection in connections
+            if connection.related_to_shortest_path and
+            not connection.blocked and self.is_available_connection(connection)
+        ]
+        if fast_connections:
+            return min(fast_connections, key=lambda c: self.dist_to_end.get(c.zone_b.name, float('inf')))
         normal_connections = [connection for connection in connections if not connection.blocked and self.is_available_connection(connection)]
         if normal_connections:
-            return normal_connections[0]
+            return min(normal_connections, key=lambda c: self.dist_to_end.get(c.zone_b.name, float('inf')))
         restricted_connections = [connection for connection in connections if connection.zone_b.zone_type == ZoneType.RESTRICTED and not connection.blocked and self.is_available_connection(connection)]
         if restricted_connections:
-            return restricted_connections[0]
+            return min(restricted_connections, key=lambda c: self.dist_to_end.get(c.zone_b.name, float('inf')))
         return None
 
     def neighboring_connections(self, region: Zone | Connection) -> list[Connection]:
@@ -94,10 +107,19 @@ class Scheduler:
         self.graph.block(start_zone, [])
         turns = []
         end_zone_name = self.graph.end_zone.name
+        dist_to_end = self._compute_distances_to_end()
+        self.dist_to_end = dist_to_end
         prev_turn_drones_per_connections = {start_zone.name: self.drones}
         while any(end_zone_name not in connection_name for connection_name in prev_turn_drones_per_connections.keys()):
             next_turn = Turn()
-            for connection_name, drones in prev_turn_drones_per_connections.items():
+            sorted_items = sorted(
+                prev_turn_drones_per_connections.items(),
+                key=lambda item: dist_to_end.get(
+                    item[0].split('-')[1] if '-' in item[0] else item[0],
+                    float('inf')
+                )
+            )
+            for connection_name, drones in sorted_items:
                 if '-' in connection_name:
                     zone_a_name, zone_b_name = connection_name.split('-')
                     connection = self.graph.connection(zone_a_name, zone_b_name)
