@@ -1,108 +1,113 @@
-# scheduler.py
-from typing import List, Tuple
-from parser import Graph
-from reservation import ReservationTable
-from pathfinder import Pathfinder
-from drone import Drone, ScheduledStep, StepKind
+from collections import deque
+from connection import Connection
+from drone import Drone
+from graph import Graph
+from zone import Zone, ZoneType
+from turn import Turn
+
 
 class Scheduler:
-    def __init__(self, graph: Graph):
+    def __init__(self, graph: Graph, drones: list[Drone]):
         self.graph = graph
-        self.reservations = ReservationTable()
-        self.pathfinder = Pathfinder(graph, self.reservations)
+        self.drones = drones
 
-    def schedule_drones(self, nb_drones: int) -> List[Drone]:
-        start = self.graph.get_start_zone().name
-        end = self.graph.get_end_zone().name
+    def is_available_connection(self, connection: Connection) -> bool:
+        """
+        Check if a connection is available for a drone to occupy.
 
-        # 1. Static paths for ordering heuristic
-        static_paths = [self.pathfinder.static_shortest_path(start, end) for _ in range(nb_drones)]
-        order = sorted(range(nb_drones), key=lambda i: len(static_paths[i]))
+        Args:
+            connection: The connection to check.
+        """
+        if connection.zone_b.zone_type == ZoneType.RESTRICTED:
+            return connection.max_link_capacity > 0
+        return connection.max_link_capacity > 0 and connection.zone_b.max_drones > 0
 
-        # 2. Schedule each drone
-        drones = []
-        for idx in order:
-            path = self.pathfinder.space_time_path(start, end, start_turn=0)
-            schedule = self._build_schedule(path)
-            self._commit_path(path)
-            drone = Drone(drone_id=idx+1, schedule=schedule)
-            drones.append(drone)
+    def best_available_connection(self, connections: list[Connection]) -> Connection | None:
+        priority_connection = next(
+            (connection for connection in connections
+             if connection.zone_b.zone_type == ZoneType.PRIORITY and
+             not connection.blocked and self.is_available_connection(connection)),
+            None,
+        )
+        if priority_connection:
+            return priority_connection
+        fast_connection = next(
+            (connection for connection in connections
+             if connection.related_to_shortest_path and
+             not connection.blocked and self.is_available_connection(connection)),
+            None,
+        )
+        if fast_connection:
+            return fast_connection
+        normal_connections = [connection for connection in connections if not connection.blocked and self.is_available_connection(connection)]
+        if normal_connections:
+            return normal_connections[0]
+        restricted_connections = [connection for connection in connections if connection.zone_b.zone_type == ZoneType.RESTRICTED and not connection.blocked and self.is_available_connection(connection)]
+        if restricted_connections:
+            return restricted_connections[0]
+        return None
 
-        # 3. Return sorted by ID
-        return sorted(drones, key=lambda d: d.drone_id)
+    def neighboring_connections(self, region: Zone | Connection) -> list[Connection]:
+        """
+        Get the neighboring connections of a given region.
 
-    def _build_schedule(self, path: List[Tuple[str, int]]) -> List[ScheduledStep]:
-        # Build a schedule containing one ScheduledStep per turn (0..last_turn)
-        if not path:
-            return []
+        Args:
+            region: The region to get the neighbors for.
+        """
+        if isinstance(region, Zone):
+            return self.graph.adjacency[region.name]
+        elif isinstance(region, Connection):
+            return self.graph.adjacency[region.zone_b.name]
+        else:
+            raise ValueError("Invalid region type. Must be Zone or Connection.")
 
-        last_turn = path[-1][1]
-        schedule: List[Optional[ScheduledStep]] = [None] * (last_turn + 1)
+    def schedule_arriving_drones(self, arriving_drones: deque[Drone], current_connection: Connection, next_turn: Turn):
+        neighboring_connections = self.neighboring_connections(current_connection)
+        while arriving_drones:
+            next_connection = self.best_available_connection(neighboring_connections)
+            if not next_connection:
+                break
+            drone = arriving_drones.popleft()
+            drone.navigate(current_connection, next_connection)
+            if next_connection.zone_b == self.graph.end_zone:
+                next_connection.zone_b.max_drones += 1
+                next_connection.max_link_capacity += 1
+            next_turn.drones_per_connections.setdefault(next_connection.name, []).append(drone)
+        if arriving_drones:
+            next_turn.drones_per_connections[current_connection.name] = list(arriving_drones)
 
-        # Helper to set a step, overwriting previous if necessary
-        def set_step(step: ScheduledStep) -> None:
-            schedule[step.turn] = step
+    def schedule_on_transit_drones(self, on_transit_drones: deque[Drone], current_connection: Connection, next_turn: Turn):
+        if not isinstance(current_connection, Connection):
+            return
+        while on_transit_drones and current_connection.zone_b.max_drones > 0:
+            drone = on_transit_drones.popleft()
+            drone.navigate(current_connection, current_connection)
+            if current_connection.zone_b == self.graph.end_zone:
+                current_connection.zone_b.max_drones += 1
+                current_connection.max_link_capacity += 1
+            next_turn.drones_per_connections.setdefault(current_connection.name, []).append(drone)
+        if on_transit_drones:
+            next_turn.drones_per_connections[current_connection.name] = list(on_transit_drones)
 
-        # Initialize first entry
-        first_zone, first_turn = path[0]
-        if first_turn != 0:
-            raise ValueError("Path must start at turn 0")
-        set_step(ScheduledStep(turn=0, kind=StepKind.WAIT, zone=first_zone))
-
-        # Process transitions
-        for i in range(1, len(path)):
-            prev_zone, prev_turn = path[i-1]
-            zone, turn = path[i]
-            diff = turn - prev_turn
-
-            # Staying in same zone for one or more turns
-            if prev_zone == zone:
-                for t in range(prev_turn + 1, turn + 1):
-                    set_step(ScheduledStep(turn=t, kind=StepKind.WAIT, zone=zone))
-                continue
-
-            # Movement between different zones
-            conn = self.graph.get_connection(prev_zone, zone)
-            if conn is None:
-                raise ValueError(f"No connection between {prev_zone} and {zone}")
-
-            if diff == 1:
-                # Simple move: arrival at `turn` is a MOVE step
-                set_step(ScheduledStep(turn=turn, kind=StepKind.MOVE, zone=zone))
-            elif diff == 2:
-                # Restricted move taking 2 turns: pattern ENTER_TRANSIT, WAIT, COMPLETE_TRANSIT
-                set_step(ScheduledStep(turn=prev_turn, kind=StepKind.ENTER_TRANSIT, zone=prev_zone, connection=conn.name))
-                set_step(ScheduledStep(turn=prev_turn + 1, kind=StepKind.WAIT, zone=prev_zone))
-                set_step(ScheduledStep(turn=prev_turn + 2, kind=StepKind.COMPLETE_TRANSIT, zone=zone))
-            else:
-                raise ValueError(f"Unsupported move duration: {diff} turns between {prev_zone} and {zone}")
-
-        # Fill any remaining None entries defensively with WAIT at previous zone
-        last_known_zone = schedule[0].zone  # type: ignore[attr-defined]
-        for t in range(len(schedule)):
-            if schedule[t] is None:
-                set_step(ScheduledStep(turn=t, kind=StepKind.WAIT, zone=last_known_zone))
-            else:
-                last_known_zone = schedule[t].zone
-
-        # Convert to concrete list
-        return list(schedule)
-
-    def _commit_path(self, path: List[Tuple[str, int]]):
-        # Book zones
-        for zone, turn in path:
-            self.reservations.book_zone(zone, turn)
-
-        # Book connections for each transition
-        for i in range(len(path) - 1):
-            zone_a, turn_a = path[i]
-            zone_b, turn_b = path[i+1]
-            # If the drone stays in the same zone between these time steps
-            # (a wait), there is no connection to reserve.
-            if zone_a == zone_b:
-                continue
-            conn = self.graph.get_connection(zone_a, zone_b)
-            if conn is None:
-                raise ValueError(f"No connection between {zone_a} and {zone_b}")
-            # Book for interval [turn_a, turn_b)
-            self.reservations.book_connection_interval(conn.name, turn_a, turn_b)
+    def schedule(self):
+        start_zone = self.graph.start_zone
+        self.graph.block(start_zone, [])
+        turns = []
+        end_zone_name = self.graph.end_zone.name
+        prev_turn_drones_per_connections = {start_zone.name: self.drones}
+        while any(end_zone_name not in connection_name for connection_name in prev_turn_drones_per_connections.keys()):
+            next_turn = Turn()
+            for connection_name, drones in prev_turn_drones_per_connections.items():
+                if '-' in connection_name:
+                    zone_a_name, zone_b_name = connection_name.split('-')
+                    connection = self.graph.connection(zone_a_name, zone_b_name)
+                else:
+                    connection = self.graph.zones[connection_name]
+                arriving_drones = deque(drone for drone in drones if not drone.on_transit)
+                on_transit_drones = deque(drone for drone in drones if drone.on_transit)
+                self.schedule_arriving_drones(arriving_drones, connection, next_turn)
+                self.schedule_on_transit_drones(on_transit_drones, connection, next_turn)
+            turns.append(next_turn)
+            prev_turn_drones_per_connections = next_turn.drones_per_connections
+        return turns
+        # connections must be stored in the dict instead of zones (drones_per_zone)
