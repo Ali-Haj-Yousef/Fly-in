@@ -121,7 +121,6 @@ class MapParser:
                     line_number, f"Unrecognized line: {raw_line!r}")
 
         self._validate_post_conditions(len(lines))
-        self._graph.shortest_path
         return self._graph
 
     @staticmethod

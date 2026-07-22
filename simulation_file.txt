@@ -1,0 +1,8 @@
+D0-junction D1-junction 
+D0-correct_path D2-junction 
+D0-intermediate D1-correct_path D3-junction 
+D0-goal D1-intermediate D2-correct_path D4-junction 
+D1-goal D2-intermediate D3-correct_path 
+D2-goal D3-intermediate D4-correct_path 
+D3-goal D4-intermediate 
+D4-goal 

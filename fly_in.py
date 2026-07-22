@@ -1,56 +1,60 @@
+"""
+fly_in.py
+========
+
+Main entry point for running the Fly-in drone network simulation and visualization.
+
+Usage:
+    python fly_in.py <map_file>
+"""
+
 import sys
 
 from parser import MapParser, ParserError
 from scheduler import Scheduler
 from drone import Drone
 from turn import Turn
+from visualizer import TerminalVisualizer, GUIVisualizer
 
 
 def get_map_file_name() -> str:
+    """Extracts and validates the map file path argument from command-line arguments.
+
+    Returns:
+        str: Path to the map file.
+
+    Raises:
+        ValueError: If command-line arguments are invalid.
+    """
     if len(sys.argv) != 2:
         raise ValueError("Usage: python3 fly_in.py <map_file>")
     return sys.argv[1]
 
 
-def main():
+def main() -> None:
+    """Runs the full Fly-in pipeline: parsing, scheduling, terminal rendering, and GUI visualization."""
     try:
+        # 1. Parse command-line argument and map configuration file
         map_file_name = get_map_file_name()
         parser = MapParser()
         graph = parser.parse_file(map_file_name)
-        # ad = graph.adjacency
-        # for zone_name, connections in ad.items():
-        #     print(f"{zone_name}: {[conn.name for conn in connections]}")
-        # path = graph.shortest_path
-        # for zone in path:
-        #     print(zone.name)
-        # conn = graph.connections
-        # for con in conn:
-        #     print(con, con.related_to_shortest_path)
-        
 
+        # 2. Instantiate drone fleet and run scheduling algorithm
+        scheduler = Scheduler(graph, [Drone(i) for i in range(graph.nb_drones)])
+        scheduler.schedule_drones()
 
-        sc = Scheduler(graph, [Drone(i) for i in range(graph.nb_drones)])
-        turns: list[Turn] = sc.schedule()
-        print(f"turns nb = {len(turns)}")
-        for i in range(len(turns)):
-            print(f"Turn {i + 1}:")
-            for connection_name, drones in turns[i].drones_per_connections.items():
-                print(f"{connection_name} :")
-                for drone in drones:
-                    print(drone.id)
-            print()
-        print()
+        # 3. Display terminal simulation output
+        tv = TerminalVisualizer(graph, scheduler.reservations)
+        tv.display(delay=0.3)
 
-        # graph.block(graph.start_zone, [])
-        # cons = [con for con in graph.connections if con.blocked]
-        # for con in cons:
-        #     print(con)
+        # 4. Launch GUI visualizer
+        gv = GUIVisualizer(graph, scheduler.reservations, speed_ms=800)
+        gv.show()
 
-        # for zone in graph.shortest_path:
-        #     print(zone)
     except (ParserError, FileNotFoundError) as e:
         print(e)
 
 
 if __name__ == "__main__":
     main()
+

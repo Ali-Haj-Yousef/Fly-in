@@ -1,3 +1,11 @@
+"""
+zone.py
+=======
+
+Defines Zone entities, ZoneType enums, and HubRole enums that model
+the spatial attributes, capacities, and costs of network nodes.
+"""
+
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional
@@ -47,15 +55,6 @@ class ZoneType(Enum):
             int: 1 for NORMAL and PRIORITY, 2 for RESTRICTED, -1 for BLOCKED.
         """
         return self._cost  # type: ignore[attr-defined]
-
-    @property
-    def is_traversable(self) -> bool:
-        """Returns whether a drone may legally enter this zone.
-
-        Returns:
-            bool: False only for BLOCKED zones.
-        """
-        return self._cost != -1  # type: ignore[attr-defined]
 
 
 class HubRole(Enum):

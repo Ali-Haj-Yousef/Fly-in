@@ -1,3 +1,11 @@
+"""
+graph.py
+========
+
+Defines the Graph container managing network topology, zone mappings,
+connection adjacencies, and graph analysis algorithms (e.g. blocking dead ends).
+"""
+
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from zone import Zone, ZoneType
@@ -21,26 +29,46 @@ class Graph:
     connections: List[Connection] = field(default_factory=list)
     adjacency: Dict[str, List[Connection]] = field(default_factory=dict)
 
-    def block(self, zone: Zone, stack: list[Zone]):
+    def block(self, zone: Zone, stack: list[Zone]) -> bool:
+        """Recursively detects dead ends using DFS and marks inaccessible paths as blocked.
+
+        Traverses starting from `zone` towards `end_zone`. If a path from `zone` cannot
+        reach `end_zone` (or leads only to cycles / blocked zones), the connection and
+        zone are marked as BLOCKED so the scheduler will not attempt to route drones through them.
+
+        Args:
+            zone: The current zone being evaluated.
+            stack: List of zones currently in the recursion stack to detect cycles.
+
+        Returns:
+            bool: True if the sub-path starting at `zone` cannot reach `end_zone` (is blocked).
+        """
+        # Base case: explicitly blocked zones cannot lead to destination
+        if zone.zone_type == ZoneType.BLOCKED:
+            return True
         blocked = True
+        # Base case: reached destination hub
         if zone == self.end_zone:
             return False
-        if zone.zone_type == ZoneType.BLOCKED or zone in stack:
+        # Base case: cycle detected in stack
+        if zone in stack:
             return True
+
         stack.append(zone)
         for connection in self.adjacency[zone.name]:
             if connection.blocked:
                 continue
-            # print(f"{zone.name}: {connection.name}")
             next_zone = connection.zone_b
             if self.block(next_zone, stack):
+                # Mark connection as blocked if it leads to a dead-end branch
                 connection.blocked = True
-                print(f"{connection.name} is blocked")
             else:
                 blocked = False
         stack.pop()
-        # print(f"{zone.name}: blocked = {blocked}")
-        # print()
+
+        # If all outgoing connections are blocked, mark this zone as BLOCKED
+        if blocked:
+            zone.zone_type = ZoneType.BLOCKED
         return blocked
 
     def add_zone(self, zone: Zone) -> None:
@@ -60,12 +88,6 @@ class Graph:
         """
         self.connections.append(connection)
         self.adjacency[connection.zone_a.name].append(connection)
-        # opposite_connection = Connection(
-        #     connection.zone_b,
-        #     connection.zone_a,
-        #     connection.max_link_capacity
-        # )
-        # self.adjacency[connection.zone_b.name].append(opposite_connection)
 
     @property
     def start_zone(self) -> Zone:
@@ -126,89 +148,10 @@ class Graph:
                     conn.zone_b.name == zone_a_name):
                 return conn
         return None
-
+        
     def __repr__(self) -> str:  # pragma: no cover - cosmetic only
         """Returns a concise developer-friendly string for this graph."""
         return (
             f"Graph(nb_drones={self.nb_drones}, "
             f"zones={len(self.zones)}, connections={len(self.connections)})"
         )
-
-    @property
-    def shortest_path(self) -> List[Zone]:
-        """
-        Find the shortest path from start_zone to end_zone using Dijkstra's
-        algorithm.
-
-        Args:
-            start_zone: The starting zone.
-            end_zone: The destination zone.
-
-        Returns:
-            A list of zones representing the shortest path from start_zone to
-            end_zone. If no path exists, returns an empty list.
-        """
-        import heapq
-
-        start_zone = self.start_zone
-        end_zone = self.end_zone
-        # Priority queue for Dijkstra's algorithm
-        queue = [
-            (0, 0 if start_zone.zone_type == ZoneType.PRIORITY else 1,
-             start_zone.name, start_zone)
-        ]
-        distances = {zone.name: float('inf') for zone in self.zones.values()}
-        previous_zones = {zone.name: None for zone in self.zones.values()}
-        distances[start_zone.name] = 0
-
-        while queue:
-            current_distance, _, _, current_zone = heapq.heappop(queue)
-            if current_distance > distances[current_zone.name]:
-                continue
-
-            for connection in self.neighbors(current_zone):
-                neighbor = connection.zone_b
-
-                distance = current_distance + neighbor.movement_cost
-                should_update = (
-                    distance < distances[neighbor.name] or
-                    (
-                        distance == distances[neighbor.name] and
-                        neighbor.zone_type == ZoneType.PRIORITY
-                    )
-                )
-
-                if should_update:
-                    distances[neighbor.name] = distance
-                    previous_zones[neighbor.name] = current_zone
-                    heapq.heappush(
-                        queue,
-                        (
-                            distance,
-                            (0 if neighbor.zone_type == ZoneType.PRIORITY
-                             else 1),
-                            neighbor.name,
-                            neighbor,
-                        ),
-                    )
-
-        # Reconstruct the shortest path
-        path = []
-        current = end_zone
-        while current is not None:
-            path.append(current)
-            current = previous_zones[current.name]
-
-        path.reverse()
-
-        if not path or path[0] != start_zone:
-            return []  # No path found
-
-        for index in range(len(path) - 1):
-            connection = self.connection(
-                path[index].name, path[index + 1].name
-            )
-            if connection is not None:
-                connection.related_to_shortest_path = True
-
-        return path
