@@ -2,8 +2,9 @@
 graph.py
 ========
 
-Defines the Graph container managing network topology, zone mappings,
-connection adjacencies, and graph analysis algorithms (e.g. blocking dead ends).
+Defines the Graph container that manages network topology, zone mappings,
+connection adjacencies, and graph analysis algorithms (for example,
+blocking dead ends).
 """
 
 from dataclasses import dataclass, field
@@ -30,18 +31,20 @@ class Graph:
     adjacency: Dict[str, List[Connection]] = field(default_factory=dict)
 
     def block(self, zone: Zone, stack: list[Zone]) -> bool:
-        """Recursively detects dead ends using DFS and marks inaccessible paths as blocked.
+        """Recursively detect dead ends using DFS and mark inaccessible paths.
 
-        Traverses starting from `zone` towards `end_zone`. If a path from `zone` cannot
-        reach `end_zone` (or leads only to cycles / blocked zones), the connection and
-        zone are marked as BLOCKED so the scheduler will not attempt to route drones through them.
+        Traverses from ``zone`` toward ``end_zone``. If a path from ``zone``
+        cannot reach ``end_zone`` (or leads only to cycles or blocked zones),
+        the connection and zone are marked as BLOCKED so the scheduler will
+        not attempt to route drones through them.
 
         Args:
             zone: The current zone being evaluated.
-            stack: List of zones currently in the recursion stack to detect cycles.
+            stack: Zones currently in the recursion stack to detect cycles.
 
         Returns:
-            bool: True if the sub-path starting at `zone` cannot reach `end_zone` (is blocked).
+            bool: True if the sub-path starting at ``zone`` cannot reach
+                ``end_zone`` (is blocked).
         """
         # Base case: explicitly blocked zones cannot lead to destination
         if zone.zone_type == ZoneType.BLOCKED:
@@ -101,6 +104,7 @@ class Graph:
             if zone.is_start:
                 return zone
         from parser import ParserError
+
         raise ParserError(0, "No start_hub zone found in graph")
 
     @property
@@ -115,6 +119,7 @@ class Graph:
             if zone.is_end:
                 return zone
         from parser import ParserError
+
         raise ParserError(0, "No end_hub zone found in graph")
 
     def neighbors(self, zone: Zone) -> List[Connection]:
@@ -126,7 +131,7 @@ class Graph:
         return self.adjacency.get(zone.name, [])
 
     def connection(
-            self, zone_a_name: str, zone_b_name: str
+        self, zone_a_name: str, zone_b_name: str
     ) -> Optional["Connection"]:
         """
         Find the connection (if any) between two zones.
@@ -142,13 +147,15 @@ class Graph:
         """
         for conn in self.connections:
             if (
-                conn.zone_a.name == zone_a_name and
-                conn.zone_b.name == zone_b_name) or \
-               (conn.zone_a.name == zone_b_name and
-                    conn.zone_b.name == zone_a_name):
+                conn.zone_a.name == zone_a_name
+                and conn.zone_b.name == zone_b_name
+            ) or (
+                conn.zone_a.name == zone_b_name
+                and conn.zone_b.name == zone_a_name
+            ):
                 return conn
         return None
-        
+
     def __repr__(self) -> str:  # pragma: no cover - cosmetic only
         """Returns a concise developer-friendly string for this graph."""
         return (

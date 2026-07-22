@@ -29,35 +29,42 @@ class Drone:
         self.on_transit = False
 
     def navigate(
-            self, current_region: Connection | Zone,
-            next_connection: Connection):
-        """Navigates the drone from its current region along the target connection.
+        self,
+        current_region: Connection | Zone,
+        next_connection: Connection,
+    ) -> None:
+        """Navigate the drone from the current region to the target connection.
 
-        Updates capacity counters for both the previous region (releasing capacity)
-        and the target connection/destination zone (occupying capacity). If entering
-        a RESTRICTED zone, sets `on_transit = True` for the extra delay turn.
+        Updates capacity counters for both the previous region (releasing
+        capacity) and the target connection/destination zone (occupying
+        capacity). If entering a RESTRICTED zone, sets
+        ``on_transit = True`` for the extra delay turn.
 
         Args:
-            current_region: The zone or connection where the drone is currently located.
-            next_connection: The connection edge the drone intends to traverse.
+            current_region: The zone or connection where the drone is
+                currently located.
+            next_connection: The connection edge the drone intends to
+                traverse.
         """
-        # If remaining on the same connection (finishing transit inside restricted zone)
+        # If remaining on the same connection, finish transit inside
+        # the restricted zone.
         if current_region == next_connection:
             next_connection.zone_b.max_drones -= 1
             self.on_transit = False
         else:
-            # Release capacity from previous connection/zone if moving from a connection
+            # Release capacity from the previous connection/zone if moving
+            # from a connection.
             if isinstance(current_region, Connection):
                 current_region.max_link_capacity += 1
                 current_region.zone_b.max_drones += 1
 
-            # Occupy capacity on the next connection
+            # Occupy capacity on the next connection.
             next_connection.max_link_capacity -= 1
 
-            # If target zone is RESTRICTED, mark drone as on transit (2-turn cost)
+            # If the target zone is RESTRICTED, mark the drone as on transit
+            # (2-turn cost).
             if next_connection.zone_b.zone_type == ZoneType.RESTRICTED:
                 self.on_transit = True
             else:
-                # Decrement available capacity for normal target zone
+                # Decrement available capacity for a normal target zone.
                 next_connection.zone_b.max_drones -= 1
-

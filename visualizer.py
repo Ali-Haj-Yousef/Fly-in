@@ -35,22 +35,44 @@ import math
 import os
 import sys
 import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
-from connection import Connection
+
 from drone import Drone
 from graph import Graph
 from parser import MapParser
 from scheduler import Scheduler
-from turn import DroneStatus, Turn
-from zone import HubRole, Zone, ZoneType
+from turn import Turn
+from zone import Zone, ZoneType
+
+
+class _CanvasLike:
+    """Minimal protocol for Tkinter canvas methods used by the GUI."""
+
+    def create_line(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    def create_text(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    def create_oval(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    def create_polygon(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    def delete(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
 
 # ── Ensure UTF-8 output on Windows ──────────────────────────────────
 if sys.platform == "win32":
     try:
-        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
@@ -58,10 +80,12 @@ if sys.platform == "win32":
 if sys.platform == "win32":
     try:
         import ctypes
+
         ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI aware
     except Exception:
         try:
-            ctypes.windll.user32.SetProcessDPIAware()  # Fallback for older Windows
+            ctypes.windll.user32.SetProcessDPIAware()
+            # Fallback for older Windows.
         except Exception:
             pass
 
@@ -69,6 +93,7 @@ if sys.platform == "win32":
 # ═══════════════════════════════════════════════════════════════════════
 # ANSI Color Helpers
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class _ANSI:
     """ANSI escape-code constants for colored terminal output."""
@@ -120,38 +145,38 @@ class _ANSI:
 
 # Map zone colors (from map file) to ANSI codes
 _ZONE_COLOR_MAP: Dict[Optional[str], str] = {
-    "green":   _ANSI.BRIGHT_GREEN,
-    "red":     _ANSI.BRIGHT_RED,
-    "blue":    _ANSI.BRIGHT_BLUE,
-    "yellow":  _ANSI.BRIGHT_YELLOW,
-    "orange":  _ANSI.BRIGHT_YELLOW,
-    "cyan":    _ANSI.BRIGHT_CYAN,
+    "green": _ANSI.BRIGHT_GREEN,
+    "red": _ANSI.BRIGHT_RED,
+    "blue": _ANSI.BRIGHT_BLUE,
+    "yellow": _ANSI.BRIGHT_YELLOW,
+    "orange": _ANSI.BRIGHT_YELLOW,
+    "cyan": _ANSI.BRIGHT_CYAN,
     "magenta": _ANSI.BRIGHT_MAGENTA,
-    "white":   _ANSI.BRIGHT_WHITE,
-    "purple":  _ANSI.BRIGHT_MAGENTA,
-    "black":   _ANSI.BRIGHT_BLACK,
-    "brown":   _ANSI.YELLOW,
-    "maroon":  _ANSI.RED,
-    "gold":    _ANSI.BRIGHT_YELLOW,
+    "white": _ANSI.BRIGHT_WHITE,
+    "purple": _ANSI.BRIGHT_MAGENTA,
+    "black": _ANSI.BRIGHT_BLACK,
+    "brown": _ANSI.YELLOW,
+    "maroon": _ANSI.RED,
+    "gold": _ANSI.BRIGHT_YELLOW,
     "darkred": _ANSI.RED,
-    "violet":  _ANSI.BRIGHT_MAGENTA,
+    "violet": _ANSI.BRIGHT_MAGENTA,
     "crimson": _ANSI.BRIGHT_RED,
     "rainbow": _ANSI.BRIGHT_MAGENTA,
-    None:      _ANSI.WHITE,
+    None: _ANSI.WHITE,
 }
 
 _ZONE_TYPE_SYMBOL: Dict[ZoneType, str] = {
-    ZoneType.NORMAL:     "○",
-    ZoneType.BLOCKED:    "✖",
+    ZoneType.NORMAL: "○",
+    ZoneType.BLOCKED: "✖",
     ZoneType.RESTRICTED: "◆",
-    ZoneType.PRIORITY:   "★",
+    ZoneType.PRIORITY: "★",
 }
 
 _ZONE_TYPE_LABEL: Dict[ZoneType, str] = {
-    ZoneType.NORMAL:     "NORMAL",
-    ZoneType.BLOCKED:    "BLOCKED",
+    ZoneType.NORMAL: "NORMAL",
+    ZoneType.BLOCKED: "BLOCKED",
     ZoneType.RESTRICTED: "RESTRICTED",
-    ZoneType.PRIORITY:   "PRIORITY",
+    ZoneType.PRIORITY: "PRIORITY",
 }
 
 # Drone colors cycle (for terminal drone IDs)
@@ -189,12 +214,14 @@ def _supports_color() -> bool:
 # Data extraction helpers
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class DronePosition:
     """Describes where a drone is during a particular turn."""
+
     drone_id: int
-    zone_name: str            # zone the drone is *at* or heading *to*
-    connection_name: str      # full connection key (e.g. "A-B") or zone name
+    zone_name: str  # zone the drone is *at* or heading *to*
+    connection_name: str  # full connection key (e.g. "A-B") or zone name
     will_move: bool
     on_transit: bool
 
@@ -211,19 +238,22 @@ def extract_turn_positions(
         else:
             zone_name = conn_name
         for status in statuses:
-            positions.append(DronePosition(
-                drone_id=status.drone.id,
-                zone_name=zone_name,
-                connection_name=conn_name,
-                will_move=status.will_move,
-                on_transit=status.on_transit,
-            ))
+            positions.append(
+                DronePosition(
+                    drone_id=status.drone.id,
+                    zone_name=zone_name,
+                    connection_name=conn_name,
+                    will_move=status.will_move,
+                    on_transit=status.on_transit,
+                )
+            )
     return positions
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Terminal Visualizer
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TerminalVisualizer:
     """Renders the simulation with rich ANSI-colored terminal output.
@@ -286,15 +316,24 @@ class TerminalVisualizer:
              |___/
         """
         print(self._c(_ANSI.BOLD + _ANSI.BRIGHT_CYAN, banner))
-        print(self._c(
-            _ANSI.DIM + _ANSI.BRIGHT_WHITE,
-            "  ╔══════════════════════════════════════════════════╗"))
-        print(self._c(
-            _ANSI.DIM + _ANSI.BRIGHT_WHITE,
-            "  ║   Drone Network Simulation — Visual Output      ║"))
-        print(self._c(
-            _ANSI.DIM + _ANSI.BRIGHT_WHITE,
-            "  ╚══════════════════════════════════════════════════╝"))
+        print(
+            self._c(
+                _ANSI.DIM + _ANSI.BRIGHT_WHITE,
+                "  ╔══════════════════════════════════════════════════╗",
+            )
+        )
+        print(
+            self._c(
+                _ANSI.DIM + _ANSI.BRIGHT_WHITE,
+                "  ║   Drone Network Simulation — Visual Output      ║",
+            )
+        )
+        print(
+            self._c(
+                _ANSI.DIM + _ANSI.BRIGHT_WHITE,
+                "  ╚══════════════════════════════════════════════════╝",
+            )
+        )
         print()
 
     # ── network overview ─────────────────────────────────────────────
@@ -315,15 +354,27 @@ class TerminalVisualizer:
 
         # Zones table
         print(self._c(_ANSI.BOLD, "  Zones:"))
-        print(self._c(_ANSI.DIM,
-                       "    ┌──────────────────┬──────────┬────────────"
-                       "┬────────┬───────────┐"))
-        print(self._c(_ANSI.DIM,
-                       "    │ Name             │ Type     │ Role       "
-                       "│ Cap    │ Position  │"))
-        print(self._c(_ANSI.DIM,
-                       "    ├──────────────────┼──────────┼────────────"
-                       "┼────────┼───────────┤"))
+        print(
+            self._c(
+                _ANSI.DIM,
+                "    ┌──────────────────┬──────────┬────────────"
+                "┬────────┬───────────┐",
+            )
+        )
+        print(
+            self._c(
+                _ANSI.DIM,
+                "    │ Name             │ Type     │ Role       "
+                "│ Cap    │ Position  │",
+            )
+        )
+        print(
+            self._c(
+                _ANSI.DIM,
+                "    ├──────────────────┼──────────┼────────────"
+                "┼────────┼───────────┤",
+            )
+        )
 
         for zone in self.graph.zones.values():
             sym = _ZONE_TYPE_SYMBOL[zone.zone_type]
@@ -335,12 +386,20 @@ class TerminalVisualizer:
             pos = f"({zone.x},{zone.y})".ljust(9)
             print(f"    │ {name} │ {zt_label} │ {role} │ {cap} │ {pos} │")
 
-        print(self._c(_ANSI.DIM,
-                       "    └──────────────────┴──────────┴────────────"
-                       "┴────────┴───────────┘"))
+        print(
+            self._c(
+                _ANSI.DIM,
+                "    └──────────────────┴──────────┴────────────"
+                "┴────────┴───────────┘",
+            )
+        )
         print()
-        print(self._c(_ANSI.BOLD + _ANSI.BRIGHT_WHITE,
-                       f"  Drones to route: {self.graph.nb_drones}"))
+        print(
+            self._c(
+                _ANSI.BOLD + _ANSI.BRIGHT_WHITE,
+                f"  Drones to route: {self.graph.nb_drones}",
+            )
+        )
         print()
 
     # ── connections overview ─────────────────────────────────────────
@@ -353,9 +412,11 @@ class TerminalVisualizer:
             b_color = _zone_ansi(conn.zone_b)
             a_name = self._c(a_color, conn.zone_a.name)
             b_name = self._c(b_color, conn.zone_b.name)
-            status = (self._c(_ANSI.RED + _ANSI.BOLD, " ✖ BLOCKED")
-                      if conn.blocked
-                      else self._c(_ANSI.GREEN, " ✔"))
+            status = (
+                self._c(_ANSI.RED + _ANSI.BOLD, " ✖ BLOCKED")
+                if conn.blocked
+                else self._c(_ANSI.GREEN, " ✔")
+            )
             cap = self._c(_ANSI.DIM, f"[cap={conn.max_link_capacity}]")
             arrow = self._c(_ANSI.DIM, "───▶")
             print(f"    {a_name} {arrow} {b_name}  {cap}{status}")
@@ -374,12 +435,19 @@ class TerminalVisualizer:
             # Turn header
             progress = f"[{turn_num}/{total}]"
             bar_fill = int((turn_num / total) * 30)
-            bar = ("█" * bar_fill + "░" * (30 - bar_fill))
-            print(self._c(_ANSI.BOLD + _ANSI.BRIGHT_YELLOW,
-                           f"  ┌─ Turn {turn_num} {progress}"))
-            print(self._c(_ANSI.DIM,
-                           f"  │  Progress: [{bar}] "
-                           f"{turn_num * 100 // total}%"))
+            bar = "█" * bar_fill + "░" * (30 - bar_fill)
+            print(
+                self._c(
+                    _ANSI.BOLD + _ANSI.BRIGHT_YELLOW,
+                    f"  ┌─ Turn {turn_num} {progress}",
+                )
+            )
+            print(
+                self._c(
+                    _ANSI.DIM,
+                    f"  │  Progress: [{bar}] " f"{turn_num * 100 // total}%",
+                )
+            )
             print(self._c(_ANSI.DIM, "  │"))
 
             # Group drones by zone
@@ -392,16 +460,16 @@ class TerminalVisualizer:
                 if zone:
                     z_color = _zone_ansi(zone)
                     z_sym = _ZONE_TYPE_SYMBOL[zone.zone_type]
-                    max_d = zone.max_drones
+                    max_d: int | str = zone.max_drones
                 else:
                     z_color = _ANSI.WHITE
                     z_sym = "·"
                     max_d = "?"
 
-                zone_label = self._c(z_color + _ANSI.BOLD,
-                                     f"{z_sym} {zone_name}")
-                cap_info = self._c(_ANSI.DIM,
-                                   f" [max:{max_d}]")
+                zone_label = self._c(
+                    z_color + _ANSI.BOLD, f"{z_sym} {zone_name}"
+                )
+                cap_info = self._c(_ANSI.DIM, f" [max:{max_d}]")
                 drone_tags = []
                 for dp in drones_here:
                     d_col = _drone_color(dp.drone_id)
@@ -415,8 +483,7 @@ class TerminalVisualizer:
                 print(f"  │  {zone_label}{cap_info}: {drones_str}")
 
             print(self._c(_ANSI.DIM, "  │"))
-            print(self._c(_ANSI.BOLD + _ANSI.BRIGHT_YELLOW,
-                           "  └" + "─" * 50))
+            print(self._c(_ANSI.BOLD + _ANSI.BRIGHT_YELLOW, "  └" + "─" * 50))
             print()
             if delay > 0:
                 time.sleep(delay)
@@ -427,9 +494,13 @@ class TerminalVisualizer:
         print(self._header("SIMULATION COMPLETE"))
         print()
         total_turns = len(self.reservations)
-        print(self._c(_ANSI.BOLD + _ANSI.BRIGHT_GREEN,
-                       f"  ✔  All {self.graph.nb_drones} drones reached "
-                       f"the destination in {total_turns} turns."))
+        print(
+            self._c(
+                _ANSI.BOLD + _ANSI.BRIGHT_GREEN,
+                f"  ✔  All {self.graph.nb_drones} drones reached "
+                f"the destination in {total_turns} turns.",
+            )
+        )
         print()
 
         # Per-drone timeline
@@ -459,24 +530,24 @@ class TerminalVisualizer:
 
 # Tkinter color palette for zones
 _GUI_ZONE_COLORS: Dict[Optional[str], str] = {
-    "green":    "#22c55e",
-    "red":      "#ef4444",
-    "blue":     "#3b82f6",
-    "yellow":   "#eab308",
-    "orange":   "#f97316",
-    "cyan":     "#06b6d4",
-    "magenta":  "#d946ef",
-    "white":    "#e2e8f0",
-    "purple":   "#a855f7",
-    "black":    "#334155",
-    "brown":    "#92400e",
-    "maroon":   "#881337",
-    "gold":     "#eab308",
-    "darkred":  "#991b1b",
-    "violet":   "#8b5cf6",
-    "crimson":  "#be123c",
-    "rainbow":  "#ec4899",
-    None:       "#94a3b8",
+    "green": "#22c55e",
+    "red": "#ef4444",
+    "blue": "#3b82f6",
+    "yellow": "#eab308",
+    "orange": "#f97316",
+    "cyan": "#06b6d4",
+    "magenta": "#d946ef",
+    "white": "#e2e8f0",
+    "purple": "#a855f7",
+    "black": "#334155",
+    "brown": "#92400e",
+    "maroon": "#881337",
+    "gold": "#eab308",
+    "darkred": "#991b1b",
+    "violet": "#8b5cf6",
+    "crimson": "#be123c",
+    "rainbow": "#ec4899",
+    None: "#94a3b8",
 }
 
 
@@ -491,11 +562,12 @@ def _gui_zone_color(color_name: Optional[str]) -> str:
         return color_name
     return _GUI_ZONE_COLORS.get(color_lower, "#94a3b8")
 
+
 _GUI_ZONE_TYPE_OUTLINE: Dict[ZoneType, str] = {
-    ZoneType.NORMAL:     "#64748b",
-    ZoneType.BLOCKED:    "#dc2626",
+    ZoneType.NORMAL: "#64748b",
+    ZoneType.BLOCKED: "#dc2626",
     ZoneType.RESTRICTED: "#f97316",
-    ZoneType.PRIORITY:   "#2563eb",
+    ZoneType.PRIORITY: "#2563eb",
 }
 
 # Drone token colors (for GUI)
@@ -559,13 +631,22 @@ class GUIVisualizer:
         self._canvas_w = self.CANVAS_WIDTH
         self._canvas_h = self.CANVAS_HEIGHT
         self._resize_after_id: Optional[str] = None
+        self.canvas: Any = None
+        self.root: Any = None
+        self._turn_label: Any = None
+        self._progress_label: Any = None
+        self._drone_info_frame: Any = None
+        self._btn_back: Any = None
+        self._btn_play: Any = None
+        self._btn_step: Any = None
+        self._btn_reset: Any = None
+        self._speed_var: Any = None
+        self._speed_label: Any = None
         self._compute_positions(self.CANVAS_WIDTH, self.CANVAS_HEIGHT)
 
     # ── geometry ─────────────────────────────────────────────────────
 
-    def _compute_positions(
-        self, canvas_w: int, canvas_h: int
-    ) -> None:
+    def _compute_positions(self, canvas_w: int, canvas_h: int) -> None:
         """Maps zone (x, y) from the map file to canvas pixel positions.
 
         Scales the zone coordinates to fill the available canvas area
@@ -669,8 +750,12 @@ class GUIVisualizer:
 
         # Clamp to canvas bounds with padding
         for name in positions:
-            positions[name][0] = max(pad, min(canvas_w - pad, positions[name][0]))
-            positions[name][1] = max(pad, min(canvas_h - pad, positions[name][1]))
+            positions[name][0] = max(
+                pad, min(canvas_w - pad, positions[name][0])
+            )
+            positions[name][1] = max(
+                pad, min(canvas_h - pad, positions[name][1])
+            )
 
         self._zone_positions = {
             name: (pos[0], pos[1]) for name, pos in positions.items()
@@ -684,8 +769,10 @@ class GUIVisualizer:
             import tkinter as tk
             from tkinter import ttk
         except ImportError:
-            print("ERROR: Tkinter is not available. "
-                  "Use --mode terminal instead.")
+            print(
+                "ERROR: Tkinter is not available. "
+                "Use --mode terminal instead."
+            )
             return
 
         self.tk = tk
@@ -696,7 +783,7 @@ class GUIVisualizer:
 
         # ── Start maximized so the network fills the screen ──────────
         try:
-            self.root.state('zoomed')  # Works on Windows
+            self.root.state("zoomed")  # Works on Windows
         except Exception:
             try:
                 # Fallback for Linux / macOS
@@ -708,8 +795,8 @@ class GUIVisualizer:
 
         # ── High-DPI: tell Tk the actual screen DPI ──────────────────
         try:
-            dpi = self.root.winfo_fpixels('1i')  # actual pixels per inch
-            self.root.tk.call('tk', 'scaling', dpi / 72)
+            dpi = self.root.winfo_fpixels("1i")  # actual pixels per inch
+            self.root.tk.call("tk", "scaling", dpi / 72)
         except Exception:
             pass
 
@@ -727,8 +814,9 @@ class GUIVisualizer:
 
         # Canvas area
         canvas_frame = tk.Frame(main_frame, bg=self.BG_COLOR)
-        canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH,
-                          expand=True, padx=8, pady=8)
+        canvas_frame.pack(
+            side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8, pady=8
+        )
 
         self.canvas = tk.Canvas(
             canvas_frame,
@@ -758,10 +846,10 @@ class GUIVisualizer:
 
     # ── resize handling ──────────────────────────────────────────────
 
-    def _on_canvas_resize(self, event: "tk.Event") -> None:
+    def _on_canvas_resize(self, event: Any) -> None:
         """Recomputes zone positions and redraws when the canvas resizes."""
-        new_w = event.width
-        new_h = event.height
+        new_w = getattr(event, "width", 0)
+        new_h = getattr(event, "height", 0)
         # Ignore very small sizes (e.g. during init) and no-change events
         if new_w < 100 or new_h < 100:
             return
@@ -772,7 +860,8 @@ class GUIVisualizer:
         if self._resize_after_id is not None:
             self.root.after_cancel(self._resize_after_id)
         self._resize_after_id = self.root.after(
-            150, self._do_resize, new_w, new_h)
+            150, self._do_resize, new_w, new_h
+        )
 
     def _do_resize(self, new_w: int, new_h: int) -> None:
         """Actually performs the resize: recompute positions and redraw."""
@@ -784,16 +873,20 @@ class GUIVisualizer:
 
     # ── sidebar ──────────────────────────────────────────────────────
 
-    def _build_sidebar(self, parent: "tk.Frame", tk: "module") -> None:
+    def _build_sidebar(self, parent: Any, tk: Any) -> None:
         # Title
         tk.Label(
-            parent, text="🛩  Fly-in Visualizer",
-            bg=self.PANEL_BG, fg=self.ACCENT_COLOR,
-            font=("Segoe UI", 13, "bold"), anchor="w",
+            parent,
+            text="🛩  Fly-in Visualizer",
+            bg=self.PANEL_BG,
+            fg=self.ACCENT_COLOR,
+            font=("Segoe UI", 13, "bold"),
+            anchor="w",
         ).pack(fill="x", padx=12, pady=(12, 4))
 
         tk.Frame(parent, bg="#334155", height=1).pack(
-            fill="x", padx=12, pady=6)
+            fill="x", padx=12, pady=6
+        )
 
         # Info
         info_items = [
@@ -807,21 +900,35 @@ class GUIVisualizer:
         for label, value in info_items:
             row = tk.Frame(parent, bg=self.PANEL_BG)
             row.pack(fill="x", padx=12, pady=2)
-            tk.Label(row, text=f"{label}:", bg=self.PANEL_BG,
-                     fg=self.MUTED_COLOR, font=("Segoe UI", 9),
-                     anchor="w").pack(side="left")
-            tk.Label(row, text=value, bg=self.PANEL_BG,
-                     fg=self.TEXT_COLOR, font=("Segoe UI", 9, "bold"),
-                     anchor="e").pack(side="right")
+            tk.Label(
+                row,
+                text=f"{label}:",
+                bg=self.PANEL_BG,
+                fg=self.MUTED_COLOR,
+                font=("Segoe UI", 9),
+                anchor="w",
+            ).pack(side="left")
+            tk.Label(
+                row,
+                text=value,
+                bg=self.PANEL_BG,
+                fg=self.TEXT_COLOR,
+                font=("Segoe UI", 9, "bold"),
+                anchor="e",
+            ).pack(side="right")
 
         tk.Frame(parent, bg="#334155", height=1).pack(
-            fill="x", padx=12, pady=6)
+            fill="x", padx=12, pady=6
+        )
 
         # Legend
         tk.Label(
-            parent, text="Legend",
-            bg=self.PANEL_BG, fg=self.TEXT_COLOR,
-            font=("Segoe UI", 10, "bold"), anchor="w",
+            parent,
+            text="Legend",
+            bg=self.PANEL_BG,
+            fg=self.TEXT_COLOR,
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
         ).pack(fill="x", padx=12, pady=(4, 2))
 
         legend_items = [
@@ -832,19 +939,26 @@ class GUIVisualizer:
         ]
         for text, color in legend_items:
             tk.Label(
-                parent, text=f"  {text}",
-                bg=self.PANEL_BG, fg=color,
-                font=("Segoe UI", 9), anchor="w",
+                parent,
+                text=f"  {text}",
+                bg=self.PANEL_BG,
+                fg=color,
+                font=("Segoe UI", 9),
+                anchor="w",
             ).pack(fill="x", padx=12, pady=1)
 
         tk.Frame(parent, bg="#334155", height=1).pack(
-            fill="x", padx=12, pady=6)
+            fill="x", padx=12, pady=6
+        )
 
         # Turn info (updated dynamically)
         self._turn_label = tk.Label(
-            parent, text="Turn: — / —",
-            bg=self.PANEL_BG, fg=self.ACCENT_COLOR,
-            font=("Segoe UI", 11, "bold"), anchor="w",
+            parent,
+            text="Turn: — / —",
+            bg=self.PANEL_BG,
+            fg=self.ACCENT_COLOR,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w",
         )
         self._turn_label.pack(fill="x", padx=12, pady=(4, 2))
 
@@ -854,41 +968,55 @@ class GUIVisualizer:
     # ── controls ─────────────────────────────────────────────────────
 
     def _build_controls(
-        self, parent: "tk.Frame", tk: "module", ttk: "module"
+        self, parent: Any, tk: Any, ttk: Any
     ) -> None:
         btn_opts = dict(
-            bg="#334155", fg=self.TEXT_COLOR,
+            bg="#334155",
+            fg=self.TEXT_COLOR,
             activebackground=self.ACCENT_COLOR,
             activeforeground="#0f172a",
             font=("Segoe UI", 10, "bold"),
-            relief="flat", bd=0, padx=14, pady=4,
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=4,
             cursor="hand2",
         )
 
         self._btn_back = tk.Button(
-            parent, text="⏮  Back", command=self._step_back, **btn_opts)
+            parent, text="⏮  Back", command=self._step_back, **btn_opts
+        )
         self._btn_back.pack(side="left", padx=(0, 4))
 
         self._btn_play = tk.Button(
-            parent, text="▶  Play", command=self._toggle_play, **btn_opts)
+            parent, text="▶  Play", command=self._toggle_play, **btn_opts
+        )
         self._btn_play.pack(side="left", padx=4)
 
         self._btn_step = tk.Button(
-            parent, text="⏭  Step", command=self._step_forward, **btn_opts)
+            parent, text="⏭  Step", command=self._step_forward, **btn_opts
+        )
         self._btn_step.pack(side="left", padx=4)
 
         self._btn_reset = tk.Button(
-            parent, text="⏹  Reset", command=self._reset, **btn_opts)
+            parent, text="⏹  Reset", command=self._reset, **btn_opts
+        )
         self._btn_reset.pack(side="left", padx=4)
 
         # Speed slider
-        tk.Label(parent, text="Speed:",
-                 bg=self.BG_COLOR, fg=self.MUTED_COLOR,
-                 font=("Segoe UI", 9)).pack(side="left", padx=(20, 4))
+        tk.Label(
+            parent,
+            text="Speed:",
+            bg=self.BG_COLOR,
+            fg=self.MUTED_COLOR,
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(20, 4))
 
         self._speed_var = tk.IntVar(value=self.speed_ms)
         speed_slider = tk.Scale(
-            parent, from_=100, to=2000,
+            parent,
+            from_=100,
+            to=2000,
             variable=self._speed_var,
             orient="horizontal",
             length=160,
@@ -903,17 +1031,23 @@ class GUIVisualizer:
         speed_slider.pack(side="left", padx=4)
 
         self._speed_label = tk.Label(
-            parent, text=f"{self.speed_ms} ms",
-            bg=self.BG_COLOR, fg=self.MUTED_COLOR,
-            font=("Segoe UI", 9))
+            parent,
+            text=f"{self.speed_ms} ms",
+            bg=self.BG_COLOR,
+            fg=self.MUTED_COLOR,
+            font=("Segoe UI", 9),
+        )
         self._speed_label.pack(side="left", padx=4)
         self._speed_var.trace_add("write", self._on_speed_change)
 
         # Turn indicator on the right
         self._progress_label = tk.Label(
-            parent, text="",
-            bg=self.BG_COLOR, fg=self.ACCENT_COLOR,
-            font=("Segoe UI", 10, "bold"))
+            parent,
+            text="",
+            bg=self.BG_COLOR,
+            fg=self.ACCENT_COLOR,
+            font=("Segoe UI", 10, "bold"),
+        )
         self._progress_label.pack(side="right", padx=8)
 
     # ── drawing ──────────────────────────────────────────────────────
@@ -927,14 +1061,20 @@ class GUIVisualizer:
         for conn in self.graph.connections:
             x1, y1 = self._zone_positions[conn.zone_a.name]
             x2, y2 = self._zone_positions[conn.zone_b.name]
-            color = (self.EDGE_BLOCKED_COLOR if conn.blocked
-                     else self.EDGE_COLOR)
+            color = (
+                self.EDGE_BLOCKED_COLOR if conn.blocked else self.EDGE_COLOR
+            )
             dash = (6, 4) if conn.blocked else ()
             width = 1 if conn.blocked else 2
 
             canvas.create_line(
-                x1, y1, x2, y2,
-                fill=color, width=width, dash=dash,
+                x1,
+                y1,
+                x2,
+                y2,
+                fill=color,
+                width=width,
+                dash=dash,
                 tags="edge",
             )
 
@@ -947,7 +1087,8 @@ class GUIVisualizer:
             ly = my - offset * math.cos(angle)
             if not conn.blocked:
                 canvas.create_text(
-                    lx, ly,
+                    lx,
+                    ly,
                     text=f"cap:{conn.max_link_capacity}",
                     fill=self.MUTED_COLOR,
                     font=("Segoe UI", 7),
@@ -962,30 +1103,40 @@ class GUIVisualizer:
         for zone in self.graph.zones.values():
             cx, cy = self._zone_positions[zone.name]
             fill = _gui_zone_color(zone.color)
-            outline = _GUI_ZONE_TYPE_OUTLINE.get(
-                zone.zone_type, "#64748b")
+            outline = _GUI_ZONE_TYPE_OUTLINE.get(zone.zone_type, "#64748b")
 
             # Glow effect
             canvas.create_oval(
-                cx - r - 4, cy - r - 4,
-                cx + r + 4, cy + r + 4,
-                fill="", outline=fill, width=1,
+                cx - r - 4,
+                cy - r - 4,
+                cx + r + 4,
+                cy + r + 4,
+                fill="",
+                outline=fill,
+                width=1,
                 stipple="gray25",
                 tags="node_glow",
             )
 
             # Main node circle
             canvas.create_oval(
-                cx - r, cy - r, cx + r, cy + r,
-                fill=self.CANVAS_BG, outline=outline, width=3,
+                cx - r,
+                cy - r,
+                cx + r,
+                cy + r,
+                fill=self.CANVAS_BG,
+                outline=outline,
+                width=3,
                 tags="node",
             )
 
             # Zone symbol
             sym = _ZONE_TYPE_SYMBOL.get(zone.zone_type, "○")
             canvas.create_text(
-                cx, cy - 8,
-                text=sym, fill=fill,
+                cx,
+                cy - 8,
+                text=sym,
+                fill=fill,
                 font=("Segoe UI", 14, "bold"),
                 tags="node_symbol",
             )
@@ -993,7 +1144,8 @@ class GUIVisualizer:
             # Max drones capacity label inside the node
             cap_text = f"max:{zone.max_drones}"
             canvas.create_text(
-                cx, cy + 10,
+                cx,
+                cy + 10,
                 text=cap_text,
                 fill=self.MUTED_COLOR,
                 font=("Segoe UI", 7),
@@ -1002,7 +1154,8 @@ class GUIVisualizer:
 
             # Zone name label below
             canvas.create_text(
-                cx, cy + r + 14,
+                cx,
+                cy + r + 14,
                 text=zone.name,
                 fill=self.TEXT_COLOR,
                 font=("Segoe UI", 9, "bold"),
@@ -1012,7 +1165,8 @@ class GUIVisualizer:
             # Role badge
             if zone.is_start:
                 canvas.create_text(
-                    cx, cy - r - 10,
+                    cx,
+                    cy - r - 10,
                     text="START",
                     fill="#22c55e",
                     font=("Segoe UI", 7, "bold"),
@@ -1020,7 +1174,8 @@ class GUIVisualizer:
                 )
             elif zone.is_end:
                 canvas.create_text(
-                    cx, cy - r - 10,
+                    cx,
+                    cy - r - 10,
                     text="END",
                     fill="#22c55e",
                     font=("Segoe UI", 7, "bold"),
@@ -1029,10 +1184,12 @@ class GUIVisualizer:
 
     def _draw_arrowhead(
         self,
-        x1: float, y1: float,
-        x2: float, y2: float,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
         node_r: float,
-        canvas: "tk.Canvas",
+        canvas: _CanvasLike,
     ) -> None:
         """Draws a small arrowhead at the edge of the destination node."""
         angle = math.atan2(y2 - y1, x2 - x1)
@@ -1045,8 +1202,14 @@ class GUIVisualizer:
         rx = tip_x - arrow_len * math.cos(angle + arrow_angle)
         ry = tip_y - arrow_len * math.sin(angle + arrow_angle)
         canvas.create_polygon(
-            tip_x, tip_y, lx, ly, rx, ry,
-            fill=self.EDGE_COLOR, outline=self.EDGE_COLOR,
+            tip_x,
+            tip_y,
+            lx,
+            ly,
+            rx,
+            ry,
+            fill=self.EDGE_COLOR,
+            outline=self.EDGE_COLOR,
             tags="arrowhead",
         )
 
@@ -1068,16 +1231,21 @@ class GUIVisualizer:
             for i in range(n):
                 self._draw_drone_token(canvas, cx, cy, i, n, "idle")
             self._update_drone_info_panel(
-                [DronePosition(i, start, start, False, False)
-                 for i in range(n)])
+                [
+                    DronePosition(i, start, start, False, False)
+                    for i in range(n)
+                ]
+            )
             return
 
         turn = self.reservations[self.current_turn]
         positions = extract_turn_positions(turn)
         self._turn_label.config(
-            text=f"Turn: {self.current_turn + 1} / {total}")
+            text=f"Turn: {self.current_turn + 1} / {total}"
+        )
         self._progress_label.config(
-            text=f"Turn {self.current_turn + 1} of {total}")
+            text=f"Turn {self.current_turn + 1} of {total}"
+        )
 
         # Group by zone
         zone_drones: Dict[str, List[DronePosition]] = {}
@@ -1090,31 +1258,37 @@ class GUIVisualizer:
             cx, cy = self._zone_positions[zone_name]
             n = len(drones)
             for i, dp in enumerate(drones):
-                state = "transit" if dp.on_transit else (
-                    "waiting" if not dp.will_move else "moving")
-                self._draw_drone_token(canvas, cx, cy, dp.drone_id,
-                                       n, state, i)
+                state = (
+                    "transit"
+                    if dp.on_transit
+                    else ("waiting" if not dp.will_move else "moving")
+                )
+                self._draw_drone_token(
+                    canvas, cx, cy, dp.drone_id, n, state, i
+                )
 
         self._update_drone_info_panel(positions)
 
     def _draw_drone_token(
         self,
-        canvas: "tk.Canvas",
-        cx: float, cy: float,
+        canvas: _CanvasLike,
+        cx: float,
+        cy: float,
         drone_id: int,
         total_at_zone: int,
         state: str,
         index: int = 0,
     ) -> None:
         """Draws a single drone token around a zone center."""
-        r = self.DRONE_RADIUS
+        r = float(self.DRONE_RADIUS)
 
         # Distribute drones in a ring around the zone center
         if total_at_zone == 1:
-            dx, dy = 0, 0
+            dx: float = 0.0
+            dy: float = 0.0
         else:
             angle = (2 * math.pi * index) / total_at_zone - math.pi / 2
-            ring_r = self.NODE_RADIUS + r + 6
+            ring_r = float(self.NODE_RADIUS) + r + 6.0
             dx = ring_r * math.cos(angle)
             dy = ring_r * math.sin(angle)
 
@@ -1132,12 +1306,18 @@ class GUIVisualizer:
             outline = "#ef4444"
 
         canvas.create_oval(
-            tx - r, ty - r, tx + r, ty + r,
-            fill=fill, outline=outline, width=2,
+            tx - r,
+            ty - r,
+            tx + r,
+            ty + r,
+            fill=fill,
+            outline=outline,
+            width=2,
             tags="drone",
         )
         canvas.create_text(
-            tx, ty,
+            tx,
+            ty,
             text=str(drone_id),
             fill="#0f172a" if state == "moving" else self.TEXT_COLOR,
             font=("Segoe UI", 8, "bold"),
@@ -1147,6 +1327,7 @@ class GUIVisualizer:
     def _update_drone_info_panel(self, positions: List[DronePosition]) -> None:
         """Updates the sidebar drone-info section."""
         import tkinter as tk
+
         for w in self._drone_info_frame.winfo_children():
             w.destroy()
 
@@ -1163,8 +1344,10 @@ class GUIVisualizer:
             label = tk.Label(
                 self._drone_info_frame,
                 text=f"  D{pos.drone_id} → {pos.zone_name}{status}",
-                bg=self.PANEL_BG, fg=color,
-                font=("Segoe UI", 8), anchor="w",
+                bg=self.PANEL_BG,
+                fg=color,
+                font=("Segoe UI", 8),
+                anchor="w",
             )
             label.pack(fill="x", pady=0)
 
@@ -1187,7 +1370,8 @@ class GUIVisualizer:
         if self.current_turn < len(self.reservations) - 1:
             self._step_forward()
             self._after_id = self.root.after(
-                self._speed_var.get(), self._auto_play)
+                self._speed_var.get(), self._auto_play
+            )
         else:
             self.playing = False
             self._btn_play.config(text="▶  Play")
@@ -1220,6 +1404,7 @@ class GUIVisualizer:
 # Standalone entry-point
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def _run_simulation(map_file: str) -> Tuple[Graph, List[Turn]]:
     """Parses the map, runs the scheduler, and returns results."""
     parser = MapParser()
@@ -1232,18 +1417,27 @@ def _run_simulation(map_file: str) -> Tuple[Graph, List[Turn]]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Fly-in Drone Simulation — Visual Representation")
+        description="Fly-in Drone Simulation — Visual Representation"
+    )
     ap.add_argument("map_file", help="Path to the map file")
     ap.add_argument(
-        "--mode", choices=["terminal", "gui", "both"],
+        "--mode",
+        choices=["terminal", "gui", "both"],
         default="both",
-        help="Visualization mode (default: both)")
+        help="Visualization mode (default: both)",
+    )
     ap.add_argument(
-        "--speed", type=int, default=800,
-        help="GUI playback speed in ms per turn (default: 800)")
+        "--speed",
+        type=int,
+        default=800,
+        help="GUI playback speed in ms per turn (default: 800)",
+    )
     ap.add_argument(
-        "--delay", type=float, default=0.3,
-        help="Terminal turn delay in seconds (default: 0.3)")
+        "--delay",
+        type=float,
+        default=0.3,
+        help="Terminal turn delay in seconds (default: 0.3)",
+    )
     args = ap.parse_args()
 
     graph, reservations = _run_simulation(args.map_file)

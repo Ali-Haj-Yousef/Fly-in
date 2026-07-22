@@ -43,7 +43,7 @@ class ZoneType(Enum):
         """
         obj = object.__new__(cls)
         obj._value_ = label   # keeps .value as the readable string
-        obj._cost = cost  # type: ignore[attr-defined]
+        setattr(obj, "_cost", cost)
         # set once at class-definition time
         return obj
 
@@ -54,7 +54,7 @@ class ZoneType(Enum):
         Returns:
             int: 1 for NORMAL and PRIORITY, 2 for RESTRICTED, -1 for BLOCKED.
         """
-        return self._cost  # type: ignore[attr-defined]
+        return int(getattr(self, "_cost"))
 
 
 class HubRole(Enum):
