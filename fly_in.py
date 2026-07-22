@@ -41,7 +41,7 @@ def main() -> None:
 
         # 2. Instantiate drone fleet and run scheduling algorithm
         scheduler = Scheduler(
-            graph, [Drone(i) for i in range(graph.nb_drones)]
+            graph, [Drone(i) for i in range(1, graph.nb_drones + 1)]
         )
         scheduler.schedule_drones()
 

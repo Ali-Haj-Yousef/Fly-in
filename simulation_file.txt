@@ -1,8 +1,16 @@
-D0-junction D1-junction 
-D0-correct_path D2-junction 
-D0-intermediate D1-correct_path D3-junction 
-D0-goal D1-intermediate D2-correct_path D4-junction 
-D1-goal D2-intermediate D3-correct_path 
-D2-goal D3-intermediate D4-correct_path 
-D3-goal D4-intermediate 
-D4-goal 
+D1-maze_a1 D2-maze_a1 
+D1-maze_b1 D2-maze_a2 D3-maze_a1 D4-maze_a1 
+D1-maze_b2 D3-maze_b1 D5-maze_a1 D2-maze_a2-trap_loop1 
+D1-maze_c2 D3-maze_b2 D4-maze_b1 D5-maze_a2 D6-maze_a1 D7-maze_a1 D2-trap_loop1 
+D1-bottleneck D3-maze_c2 D4-maze_b2 D6-maze_b1 D8-maze_a1 D2-trap_loop1-trap_loop2 D5-maze_a2-trap_loop1 
+D1-final_stretch1 D3-bottleneck D4-maze_c2 D6-maze_b2 D7-maze_b1 D8-maze_a2 D2-trap_loop2 D5-trap_loop1 
+D1-goal D3-final_stretch1 D4-bottleneck D6-maze_c2 D7-maze_b2 D2-maze_c1 D5-trap_loop1-trap_loop2 D8-maze_a2-trap_loop1 
+D3-goal D4-final_stretch1 D6-bottleneck D7-maze_c2 D2-maze_b2 D5-trap_loop2 D8-trap_loop1 
+D4-goal D6-final_stretch1 D7-bottleneck D2-maze_c2 D5-maze_c1 D8-trap_loop1-trap_loop2 
+D6-goal D7-final_stretch1 D2-bottleneck D5-maze_b2 D8-trap_loop2 
+D7-goal D2-final_stretch1 D5-maze_c2 D8-maze_c1 
+D2-goal D5-bottleneck D8-maze_b2 
+D5-final_stretch1 D8-maze_c2 
+D5-goal D8-bottleneck 
+D8-final_stretch1 
+D8-goal 

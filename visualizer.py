@@ -1228,12 +1228,12 @@ class GUIVisualizer:
             start = self.graph.start_zone.name
             n = self.graph.nb_drones
             cx, cy = self._zone_positions[start]
-            for i in range(n):
-                self._draw_drone_token(canvas, cx, cy, i, n, "idle")
+            for idx, i in enumerate(range(1, n + 1)):
+                self._draw_drone_token(canvas, cx, cy, i, n, "idle", index=idx)
             self._update_drone_info_panel(
                 [
                     DronePosition(i, start, start, False, False)
-                    for i in range(n)
+                    for i in range(1, n + 1)
                 ]
             )
             return
@@ -1410,7 +1410,9 @@ def _run_simulation(map_file: str) -> Tuple[Graph, List[Turn]]:
     parser = MapParser()
     graph = parser.parse_file(map_file)
     graph.block(graph.start_zone, [])
-    scheduler = Scheduler(graph, [Drone(i) for i in range(graph.nb_drones)])
+    scheduler = Scheduler(
+        graph, [Drone(i) for i in range(1, graph.nb_drones + 1)]
+    )
     scheduler.schedule_drones()
     return graph, scheduler.reservations
 
